@@ -13,6 +13,7 @@ exo_open_SOURCES =							\
 exo_open_CFLAGS =							\
 	$(GTK_CFLAGS)							\
 	$(LIBXFCE4UTIL_CFLAGS)						\
+	$(LIBXFCE4UI_CFLAGS)						\
 	$(GIO_CFLAGS)							\
 	$(GIO_UNIX_CFLAGS)
 
@@ -22,6 +23,7 @@ exo_open_LDFLAGS =							\
 exo_open_LDADD =							\
 	$(GTK_LIBS)							\
 	$(LIBXFCE4UTIL_LIBS)						\
+	$(LIBXFCE4UI_LIBS)						\
 	$(GIO_LIBS)							\
 	$(GIO_UNIX_LIBS)						\
 	$(top_builddir)/exo/libexo-$(LIBEXO_VERSION_API).la

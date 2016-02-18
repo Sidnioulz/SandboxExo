@@ -32,6 +32,8 @@
 
 #include <glib/gstdio.h>
 #include <gio/gio.h>
+#include <gio/gio.h>
+#include <libxfce4ui/libxfce4ui.h>
 #ifdef HAVE_GIO_UNIX
 #include <gio/gdesktopappinfo.h>
 #endif
@@ -75,6 +77,7 @@
 static gboolean  opt_help = FALSE;
 static gboolean  opt_version = FALSE;
 static gchar    *opt_launch = NULL;
+static gchar    *opt_app = NULL;
 static gchar    *opt_working_directory = NULL;
 
 static gchar    *startup_id = NULL;
@@ -84,6 +87,7 @@ static GOptionEntry entries[] =
   { "help", '?', 0, G_OPTION_ARG_NONE, &opt_help, NULL, NULL, },
   { "version", 'V', 0, G_OPTION_ARG_NONE, &opt_version, NULL, NULL, },
   { "launch", 0, 0, G_OPTION_ARG_STRING, &opt_launch, NULL, NULL, },
+  { "launch-app", 0, 0, G_OPTION_ARG_STRING, &opt_app, NULL, NULL, },
   { "working-directory", 0, 0, G_OPTION_ARG_FILENAME, &opt_working_directory, NULL, NULL, },
   { NULL, },
 };
@@ -116,6 +120,10 @@ usage (void)
                      "                                      TYPE with the optional PARAMETERs, where\n"
                      "                                      TYPE is one of the following values."));
   g_print ("\n");
+  g_print ("%s\n", _("  --launch-app APP [PARAMETERs...]    Launch any command with any parameters,\n"
+                     "                                      using the Xfce command spawning API. Allows\n"
+                     "                                      support for Xfce secure workspaces."));
+  g_print ("\n");
   g_print ("%s\n", _("  --working-directory DIRECTORY       Default working directory for applications\n"
                      "                                      when using the --launch option."));
   g_print ("\n");
@@ -130,12 +138,60 @@ usage (void)
                      "  FileManager      - The preferred File Manager.\n"
                      "  TerminalEmulator - The preferred Terminal Emulator."));
   g_print ("\n");
-  g_print ("%s\n", _("If you don't specify the --launch option, exo-open will open all specified\n"
+  g_print ("%s\n", _("If you don't specify the --launch options, exo-open will open all specified\n"
                      "URLs with their preferred URL handlers. Else, if you specify the --launch\n"
                      "option, you can select which preferred application you want to run, and\n"
                      "pass additional parameters to the application (i.e. for TerminalEmulator\n"
-                     "you can pass the command line that should be run in the terminal)."));
+                     "you can pass the command line that should be run in the terminal). If you\n"
+                     "specify the --launch-app option, you can launch any app in a Xfce compatible\n"
+                     "way."));
   g_print ("\n");
+}
+
+
+
+static gboolean
+exo_open_launch_app (const gchar *arg)
+{
+  GdkScreen *screen;
+  GtkWidget *dialog;
+  GError    *error = NULL;
+  gboolean   result = FALSE;
+
+  g_return_val_if_fail (arg != NULL, FALSE);
+
+#ifdef HAVE_GIO_UNIX
+  screen = xfce_gdk_screen_get_active (NULL);
+  xfce_spawn_command_line_on_screen (screen, arg, FALSE, TRUE, &error);
+  if (error)
+    {
+      /* display an error dialog */
+      dialog = gtk_message_dialog_new (NULL, GTK_DIALOG_MODAL, GTK_MESSAGE_ERROR, GTK_BUTTONS_CLOSE,
+                                       _("Failed to launch application \"%s\"."), arg);
+      if (startup_id != NULL)
+        gtk_window_set_startup_id (GTK_WINDOW (dialog), startup_id);
+      gtk_message_dialog_format_secondary_text (GTK_MESSAGE_DIALOG (dialog), "%s.", error->message);
+      gtk_dialog_run (GTK_DIALOG (dialog));
+      gtk_widget_destroy (dialog);
+      g_error_free (error);
+      result = FALSE;
+    }
+  else
+    {
+      result = TRUE;
+    }
+
+#ifndef NDEBUG
+  g_debug ("launching app %s", result ? "succeeded" : "failed");
+#endif
+
+  return result;
+#else /* !HAVE_GIO_UNIX */
+  g_critical (_("Launching apps is not supported when %s is compiled "
+                "without GIO-Unix features."), g_get_prgname ());
+
+  return FALSE;
+#endif
 }
 
 
@@ -543,6 +599,47 @@ main (gint argc, gchar **argv)
         result = EXIT_FAILURE;
 
       g_free (parameter);
+    }
+  else if (G_LIKELY (opt_app != NULL))
+    {
+      if (argc > 1)
+        {
+          /* NOTE: see the comment at the top of this document! */
+
+          /* combine all specified parameters to one parameter string */
+          join = g_string_new (NULL);
+          join = g_string_append (join, opt_app);
+          join = g_string_append_c (join, ' ');
+          for (i = 1; argv[i] != NULL; i++)
+            {
+              /* separate the arguments */
+              if (i > 1)
+                join = g_string_append_c (join, ' ');
+
+              /* only quote arguments with spaces if there are multiple
+               * arguments to be merged, this is a bit of magic to make
+               * common cares work property, see sample above with xfrun4 */
+              if (argc > 2 && strchr (argv[i], ' ') != NULL)
+                {
+                  quoted = g_shell_quote (argv[i]);
+                  join = g_string_append (join, quoted);
+                  g_free (quoted);
+                }
+              else
+                {
+                  join = g_string_append (join, argv[i]);
+                }
+            }
+          parameter = g_string_free (join, FALSE);
+        }
+      else
+        {
+          parameter = opt_app;
+        }
+
+      /* run the application */
+      if (!exo_open_launch_app (parameter))
+        result = EXIT_FAILURE;
     }
   else if (argc > 1)
     {
