@@ -199,7 +199,7 @@ have_gnuc_visibility=no
 if test x"$enable_visibility" != x"no"; then
   dnl Check whether the compiler supports the visibility attribute
   save_CFLAGS="$CFLAGS"
-  CFLAGS="$CFLAGS -Wall -Werror"
+  CFLAGS="$CFLAGS -Wall"
   AC_MSG_CHECKING([whether $CC supports the GNUC visibility attribute])
   AC_COMPILE_IFELSE([AC_LANG_SOURCE(
   [

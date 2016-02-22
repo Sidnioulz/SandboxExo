@@ -93,7 +93,8 @@ libexo_1_la_CFLAGS =							\
 	$(GIO_CFLAGS)							\
 	$(GTK_CFLAGS)							\
 	$(LIBX11_CFLAGS)						\
-	$(LIBXFCE4UTIL_CFLAGS)
+	$(LIBXFCE4UTIL_CFLAGS)\
+	$(LIBXFCE4UI_CFLAGS)
 
 libexo_1_la_LDFLAGS =							\
 	-export-dynamic							\
@@ -106,6 +107,7 @@ libexo_1_la_LIBADD =							\
 	$(GTK_LIBS)							\
 	$(LIBX11_LIBS)							\
 	$(LIBXFCE4UTIL_LIBS)						\
+	$(LIBXFCE4UI_LIBS)						\
 	-lm
 
 pkgconfigdir = $(libdir)/pkgconfig

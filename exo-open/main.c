@@ -181,9 +181,7 @@ exo_open_launch_app (const gchar *arg)
       result = TRUE;
     }
 
-#ifndef NDEBUG
   g_debug ("launching app %s", result ? "succeeded" : "failed");
-#endif
 
   return result;
 #else /* !HAVE_GIO_UNIX */
@@ -242,9 +240,7 @@ exo_open_launch_desktop_file (const gchar *arg)
 
   g_object_unref (G_OBJECT (appinfo));
 
-#ifndef NDEBUG
   g_debug ("launching desktop file %s", result ? "succeeded" : "failed");
-#endif
 
   return result;
 #else /* !HAVE_GIO_UNIX */
@@ -304,9 +300,7 @@ exo_open_launch_category (const gchar *category,
   GtkWidget *dialog;
   GError    *error = NULL;
 
-#ifndef NDEBUG
   g_debug ("category='%s', wd='%s', parameters='%s'", category, opt_working_directory, parameters);
-#endif
 
   /* run the preferred application */
   if (!exo_execute_preferred_application (category, parameters, opt_working_directory, NULL, &error))
@@ -379,12 +373,10 @@ exo_open_uri (const gchar  *uri,
   g_return_val_if_fail (uri != NULL, FALSE);
   g_return_val_if_fail (error == NULL || *error == NULL, FALSE);
 
-#ifndef NDEBUG
   schemes = g_vfs_get_supported_uri_schemes (g_vfs_get_default ());
   scheme = g_strjoinv (", ", (gchar **) schemes);
   g_debug ("vfs supported schemes: %s", scheme);
   g_free (scheme);
-#endif
 
   file = g_file_new_for_uri (uri);
   scheme = g_file_get_uri_scheme (file);
@@ -405,9 +397,7 @@ exo_open_uri (const gchar  *uri,
       file_type = g_file_info_get_file_type (file_info);
       if (file_type == G_FILE_TYPE_DIRECTORY)
         {
-#ifndef NDEBUG
           g_debug ("file is directory, use filemanager");
-#endif
           /* directories should go fine with a file manager */
           retval = exo_open_launch_category ("FileManager", uri);
           succeed = TRUE;
@@ -415,9 +405,7 @@ exo_open_uri (const gchar  *uri,
       else
         {
           content_type = g_file_info_get_content_type (file_info);
-#ifndef NDEBUG
           g_debug ("content type=%s", content_type);
-#endif
           if (G_LIKELY (content_type))
             {
               /* try to find a suitable application for this content type */
@@ -429,9 +417,7 @@ exo_open_uri (const gchar  *uri,
                 {
                   /* make sure we don't loop somehow */
                   executable = g_app_info_get_executable (app_info);
-#ifndef NDEBUG
                   g_debug ("default executable=%s", executable);
-#endif
                   if (executable == NULL
                       || strcmp (executable, "exo-open") != 0)
                     {
@@ -475,9 +461,7 @@ exo_open_uri (const gchar  *uri,
   /* our last try... */
   if (!succeed)
     {
-#ifndef NDEBUG
           g_debug ("nothing worked, try ftp(s) or gtk_show_uri()");
-#endif
 
       /* try ftp uris if the file manager/gio failed to recognize it */
       if (scheme != NULL
@@ -663,9 +647,7 @@ main (gint argc, gchar **argv)
               uri = exo_open_find_scheme (*argv);
             }
 
-#ifndef NDEBUG
           g_debug ("opening the following uri: %s", uri);
-#endif
 
           if (uri == NULL)
             {

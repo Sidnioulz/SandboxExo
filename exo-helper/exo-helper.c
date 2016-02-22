@@ -46,6 +46,7 @@
 #include <exo-helper/exo-helper.h>
 #include <exo-helper/exo-helper-utils.h>
 
+#include <libxfce4ui/libxfce4ui.h>
 
 
 static void       exo_helper_finalize   (GObject        *object);
@@ -358,6 +359,12 @@ exo_helper_execute (ExoHelper   *helper,
   gint          result;
   gint          pid;
   const gchar  *real_parameter = parameter;
+  gint sn_workspace;
+  gsize argc;
+  gchar **new_argv;
+  gsize index;
+  gchar *ws_name;
+  gboolean isFirejail = FALSE;
 
   // FIXME: startup-notification
 
@@ -365,9 +372,10 @@ exo_helper_execute (ExoHelper   *helper,
   g_return_val_if_fail (error == NULL || *error == NULL, FALSE);
   g_return_val_if_fail (screen == NULL || GDK_IS_SCREEN (screen), FALSE);
 
-  /* fallback to default screen */
+  /* lookup the screen with the pointer */
   if (G_UNLIKELY (screen == NULL))
-    screen = gdk_screen_get_default ();
+    screen = xfce_gdk_screen_get_active (NULL);
+  sn_workspace = xfce_workspace_get_active_workspace_number (screen);
 
   /* strip the mailto part if needed */
   if (real_parameter != NULL && g_str_has_prefix (real_parameter, "mailto:"))
@@ -397,6 +405,70 @@ exo_helper_execute (ExoHelper   *helper,
       /* check if the parsing failed */
       if (G_UNLIKELY (!succeed))
         continue;
+
+      for (argc = 0; argv[argc]; argc++);
+
+      /* check if we're about to run a sandbox */
+      if (argv[0] && (strncmp (argv[0], "firejail ", 9) == 0 ||
+        strncmp (argv[0], "/usr/bin/firejail ", 18) == 0 ||
+        strncmp (argv[0], "/usr/local/bin/firejail ", 24) == 0))
+        isFirejail = TRUE;
+
+      if (!isFirejail && xfce_workspace_is_secure (sn_workspace))
+        {
+          TRACE ("Spawning %s in secure workspace %d, wrapping with Firejail", argv[0], sn_workspace);
+          /* new argv, starting with Firejail's locked workspace mode */
+          new_argv = g_malloc(sizeof (gchar *) * (argc + 100));
+          index = 0;
+
+          new_argv[index++] = g_strdup ("firejail");
+          new_argv[index++] = g_strdup ("--lock-workspace");
+
+          ws_name = xfce_workspace_get_workspace_name (sn_workspace);
+
+          /* find and join the identify box */
+          if (xfce_workspace_has_locked_clients (sn_workspace))
+            {
+              TRACE ("Joining the existing Firejail domain '%s'", ws_name);
+              new_argv[index++] = g_strdup_printf ("--join=%s", ws_name);
+            }
+          /* create a new sandbox, parse all the xfconf options */
+          else
+            {
+              TRACE ("Starting a sandbox in Firejail domain '%s'", ws_name);
+              new_argv[index++] = g_strdup_printf ("--name=%s", ws_name);
+
+              /* network options */
+              if (!xfce_workspace_enable_network (sn_workspace))
+                  new_argv[index++] = g_strdup ("--net=none");
+              else
+                {
+                  if (xfce_workspace_fine_tuned_network (sn_workspace))
+                      new_argv[index++] = g_strdup ("--net=auto");
+
+                  if (!xfce_workspace_isolate_dbus (sn_workspace))
+                      new_argv[index++] = g_strdup ("--dbus=full");
+                }
+
+              /* overlay options */
+              if (xfce_workspace_enable_overlay (sn_workspace))
+                {
+                  if (xfce_workspace_enable_private_home (sn_workspace))
+                    new_argv[index++] = g_strdup ("--overlay-private-home");
+                  else
+                    new_argv[index++] = g_strdup ("--overlay");
+                }
+            }
+          
+          g_free (ws_name);
+          /* now, inject the argv parameters and set argv to point to our own pointer */
+          for (n = 0; argv[n]; n++)
+              new_argv[index++] = g_strdup (argv[n]);
+          new_argv[index] = NULL;
+
+          g_strfreev(argv);
+          argv = new_argv;
+        }
 
       /* try to run the command */
       succeed = gdk_spawn_on_screen (screen, NULL, argv, NULL, G_SPAWN_DO_NOT_REAP_CHILD | G_SPAWN_SEARCH_PATH, NULL, NULL, &pid, &err);

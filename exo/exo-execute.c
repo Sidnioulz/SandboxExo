@@ -23,6 +23,7 @@
 
 #include <exo/exo-execute.h>
 #include <exo/exo-alias.h>
+#include <libxfce4ui/libxfce4ui.h>
 
 /**
  * SECTION: exo-execute
@@ -142,7 +143,7 @@ exo_execute_preferred_application_on_screen (const gchar *category,
   /* null terminate the argument vector */
   argv[argc] = NULL;
 
-  /* launch the command */
+  /* launch the command - we don't wrap this call because it calls exo-helper which will wrap */
   return gdk_spawn_on_screen (screen, working_directory, argv, envp, 0, NULL, NULL, NULL, error);
 }
 
