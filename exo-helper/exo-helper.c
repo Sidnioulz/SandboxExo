@@ -328,6 +328,17 @@ exo_helper_get_command (const ExoHelper *helper)
 
 
 
+static void
+exo_helper_execute_child_watch (gint     exit_status,
+                                gpointer user_data)
+{
+  gint *data = (gint *) user_data;
+
+  data[0] = 1;
+  data[1] = exit_status;
+}
+
+
 /**
  * exo_helper_execute:
  * @helper    : an #ExoHelper.
@@ -355,16 +366,7 @@ exo_helper_execute (ExoHelper   *helper,
   gchar       **argv;
   gchar        *command;
   guint         n;
-  gint          status;
-  gint          result;
-  gint          pid;
   const gchar  *real_parameter = parameter;
-  gint sn_workspace;
-  gsize argc;
-  gchar **new_argv;
-  gsize index;
-  gchar *ws_name;
-  gboolean isFirejail = FALSE;
 
   // FIXME: startup-notification
 
@@ -375,7 +377,6 @@ exo_helper_execute (ExoHelper   *helper,
   /* lookup the screen with the pointer */
   if (G_UNLIKELY (screen == NULL))
     screen = xfce_gdk_screen_get_active (NULL);
-  sn_workspace = xfce_workspace_get_active_workspace_number (screen);
 
   /* strip the mailto part if needed */
   if (real_parameter != NULL && g_str_has_prefix (real_parameter, "mailto:"))
@@ -394,6 +395,13 @@ exo_helper_execute (ExoHelper   *helper,
   /* try to run the helper using the various given commands */
   for (n = 0; commands[n] != NULL; ++n)
     {
+      gint      status[] = { 0, 0 };
+      GClosure *child_watch = g_cclosure_new (G_CALLBACK (exo_helper_execute_child_watch), status, NULL);
+
+      /* prepare the C closure */
+      g_closure_ref (child_watch);
+      g_closure_sink (child_watch);
+
       /* reset the error */
       g_clear_error (&err);
 
@@ -406,72 +414,11 @@ exo_helper_execute (ExoHelper   *helper,
       if (G_UNLIKELY (!succeed))
         continue;
 
-      for (argc = 0; argv[argc]; argc++);
-
-      /* check if we're about to run a sandbox */
-      if (argv[0] && (strncmp (argv[0], "firejail ", 9) == 0 ||
-        strncmp (argv[0], "/usr/bin/firejail ", 18) == 0 ||
-        strncmp (argv[0], "/usr/local/bin/firejail ", 24) == 0))
-        isFirejail = TRUE;
-
-      if (!isFirejail && xfce_workspace_is_secure (sn_workspace))
-        {
-          TRACE ("Spawning %s in secure workspace %d, wrapping with Firejail", argv[0], sn_workspace);
-          /* new argv, starting with Firejail's locked workspace mode */
-          new_argv = g_malloc(sizeof (gchar *) * (argc + 100));
-          index = 0;
-
-          new_argv[index++] = g_strdup ("firejail");
-          new_argv[index++] = g_strdup ("--lock-workspace");
-
-          ws_name = xfce_workspace_get_workspace_name (sn_workspace);
-
-          /* find and join the identify box */
-          if (xfce_workspace_has_locked_clients (sn_workspace))
-            {
-              TRACE ("Joining the existing Firejail domain '%s'", ws_name);
-              new_argv[index++] = g_strdup_printf ("--join=%s", ws_name);
-            }
-          /* create a new sandbox, parse all the xfconf options */
-          else
-            {
-              TRACE ("Starting a sandbox in Firejail domain '%s'", ws_name);
-              new_argv[index++] = g_strdup_printf ("--name=%s", ws_name);
-
-              /* network options */
-              if (!xfce_workspace_enable_network (sn_workspace))
-                  new_argv[index++] = g_strdup ("--net=none");
-              else
-                {
-                  if (xfce_workspace_fine_tuned_network (sn_workspace))
-                      new_argv[index++] = g_strdup ("--net=auto");
-
-                  if (!xfce_workspace_isolate_dbus (sn_workspace))
-                      new_argv[index++] = g_strdup ("--dbus=full");
-                }
-
-              /* overlay options */
-              if (xfce_workspace_enable_overlay (sn_workspace))
-                {
-                  if (xfce_workspace_enable_private_home (sn_workspace))
-                    new_argv[index++] = g_strdup ("--overlay-private-home");
-                  else
-                    new_argv[index++] = g_strdup ("--overlay");
-                }
-            }
-          
-          g_free (ws_name);
-          /* now, inject the argv parameters and set argv to point to our own pointer */
-          for (n = 0; argv[n]; n++)
-              new_argv[index++] = g_strdup (argv[n]);
-          new_argv[index] = NULL;
-
-          g_strfreev(argv);
-          argv = new_argv;
-        }
-
       /* try to run the command */
-      succeed = gdk_spawn_on_screen (screen, NULL, argv, NULL, G_SPAWN_DO_NOT_REAP_CHILD | G_SPAWN_SEARCH_PATH, NULL, NULL, &pid, &err);
+      succeed = xfce_spawn_on_screen_with_child_watch (screen, NULL, argv, NULL,
+                                                       G_SPAWN_SEARCH_PATH,
+                                                       FALSE, 0, NULL,
+                                                       child_watch, &err);
 
       /* cleanup */
       g_strfreev (argv);
@@ -485,25 +432,16 @@ exo_helper_execute (ExoHelper   *helper,
           /* wait up to 5 seconds to see whether the command worked */
           for (;;)
             {
-              /* check if the command exited with an error */
-              result = waitpid (pid, &status, WNOHANG);
-              if (result < 0)
-                {
-                  /* something weird happened */
-                  err = g_error_new_literal (G_FILE_ERROR, g_file_error_from_errno (errno), g_strerror (errno));
-                  succeed = FALSE;
-                  break;
-                }
-              else if (result > 0 && status != 0)
+              if (status[0] == 1 && status[1] != 0)
                 {
                   /* the command failed */
                   err = g_error_new_literal (G_FILE_ERROR, g_file_error_from_errno (EIO), g_strerror (EIO));
                   succeed = FALSE;
                   break;
                 }
-              else if (result == pid)
+              else if (status[0] == 1 && status[1] == 0)
                 {
-                  /* the command succeed */
+                  /* the command succeeded */
                   succeed = TRUE;
                   break;
                 }
@@ -519,9 +457,14 @@ exo_helper_execute (ExoHelper   *helper,
               g_usleep (50 * 1000);
             }
 
+          g_closure_unref (child_watch);
           /* check if we should retry with the next command */
           if (G_LIKELY (succeed))
             break;
+        }
+      else
+        {
+          g_closure_unref (child_watch);
         }
     }
 
