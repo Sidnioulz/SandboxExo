@@ -116,6 +116,47 @@ exo_die_help (GtkWidget *button,
 
 
 
+typedef struct {
+  GtkWidget *editor;
+  GtkWidget *notebook;
+  GtkWidget *main_vbox;
+} FirejailBtnData;
+
+
+
+static void
+on_firejail_run_toggled (GtkToggleButton *firejail_btn, gpointer user_data)
+{
+  FirejailBtnData *data = (FirejailBtnData *) user_data;
+  GtkWidget *box = gtk_notebook_get_nth_page (GTK_NOTEBOOK (data->notebook), 0);
+
+  if (gtk_toggle_button_get_active (firejail_btn))
+    {
+      g_object_ref (data->editor);
+      gtk_container_remove (GTK_CONTAINER (data->main_vbox), data->editor);
+
+      gtk_box_pack_start (GTK_BOX (data->main_vbox), data->notebook, TRUE, TRUE, 0);
+      g_object_unref (data->notebook);
+
+      gtk_box_pack_start (GTK_BOX (box), data->editor, TRUE, TRUE, 0);
+      gtk_widget_show (box);
+      g_object_unref (data->editor);
+    }
+  else
+    {
+      g_object_ref (data->editor);
+      gtk_container_remove (GTK_CONTAINER (box), data->editor);
+
+      g_object_ref (data->notebook);
+      gtk_container_remove (GTK_CONTAINER (data->main_vbox), data->notebook);
+
+      gtk_box_pack_start (GTK_BOX (data->main_vbox), data->editor, TRUE, TRUE, 0);
+      g_object_unref (data->editor);
+    }
+}
+
+
+
 int
 main (int argc, char **argv)
 {
@@ -150,6 +191,14 @@ main (int argc, char **argv)
   guint            i;
   const gchar     *mode_dir;
   gint             ox, oy, ow, oh;
+  GtkWidget       *widget;
+  GtkWidget       *notebook;
+  GtkWidget       *box;
+  GtkWidget       *firejail_btn;
+  XfceFirejailWidget *fjw;
+  guint            rows;
+  guint            columns;
+  FirejailBtnData  data;
 
   /* setup translation domain */
   xfce_textdomain (GETTEXT_PACKAGE, PACKAGE_LOCALE_DIR, "UTF-8");
@@ -400,6 +449,37 @@ main (int argc, char **argv)
       exo_die_editor_set_terminal (EXO_DIE_EDITOR (editor),
           g_key_file_get_boolean (key_file, G_KEY_FILE_DESKTOP_GROUP,
                                   G_KEY_FILE_DESKTOP_KEY_TERMINAL, NULL));
+
+      /* create the Xfce Firejail widget */
+      fjw = xfce_firejail_widget_new (key_file);
+      widget = xfce_firejail_widget_get_widget (fjw);
+
+      /* create the notebook to display when the run checkbox is enabled */ 
+      notebook = gtk_notebook_new ();
+#if GTK_CHECK_VERSION (3, 0, 0)
+      box = gtk_box_new (GTK_ORIENTATION_HORIZONTAL, 0);
+#else
+      box = gtk_hbox_new (FALSE, 0);
+#endif
+      gtk_notebook_append_page (GTK_NOTEBOOK (notebook), box, gtk_label_new_with_mnemonic (_("_General")));
+      gtk_notebook_append_page (GTK_NOTEBOOK (notebook), widget, gtk_label_new_with_mnemonic (_("_Security")));
+      gtk_widget_show (notebook);
+
+      /* inject the "run in firejail" checkbox */
+      firejail_btn = xfce_firejail_widget_get_run_checkbox (fjw);
+      data.notebook = g_object_ref (notebook);
+      data.editor = editor;
+      data.main_vbox = GTK_DIALOG (dialog)->vbox;
+      g_signal_connect (firejail_btn, "toggled", G_CALLBACK (on_firejail_run_toggled), &data);
+
+      gtk_table_get_size (GTK_TABLE (editor), &rows, &columns);
+      gtk_table_resize (GTK_TABLE (editor), rows + 1, columns);
+      gtk_table_attach (GTK_TABLE (editor), firejail_btn, 1, 2, rows, rows + 1, GTK_EXPAND | GTK_FILL, GTK_FILL, 0, 3);
+
+      /* only try to update the containers if we run sandboxed from the start, else we're already good to go */
+      if (gtk_toggle_button_get_active (GTK_TOGGLE_BUTTON (firejail_btn)))
+        on_firejail_run_toggled (GTK_TOGGLE_BUTTON (firejail_btn), &data);
+      gtk_notebook_set_current_page (GTK_NOTEBOOK (notebook), 0);
       break;
 
     case EXO_DIE_EDITOR_MODE_LINK:
@@ -636,6 +716,7 @@ main (int argc, char **argv)
   gtk_widget_destroy (dialog);
 
   /* cleanup */
+  g_object_unref (fjw);
   g_key_file_free (key_file);
   g_object_unref (G_OBJECT (gfile));
 
