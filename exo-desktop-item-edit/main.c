@@ -391,7 +391,10 @@ main (int argc, char **argv)
   gtk_widget_show (button);
 
   /* add the "Create"/"Save" button (as default) */
-  button = gtk_button_new_from_stock (opt_create_new ? _("C_reate") : GTK_STOCK_SAVE);
+  if (opt_launch)
+    button = xfce_gtk_button_new_mixed (GTK_STOCK_SAVE, opt_create_new ? _("C_reate and Launch") : _("_Save and Launch"));
+  else
+    button = gtk_button_new_from_stock (opt_create_new ? _("C_reate") : GTK_STOCK_SAVE);
   gtk_dialog_add_action_widget (GTK_DIALOG (dialog), button, GTK_RESPONSE_ACCEPT);
   GTK_WIDGET_SET_FLAGS (button, GTK_CAN_DEFAULT);
   gtk_widget_grab_default (button);
