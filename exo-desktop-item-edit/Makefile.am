@@ -29,6 +29,7 @@ exo_desktop_item_edit_CFLAGS =						\
 	$(GTK_CFLAGS)							\
 	$(GTHREAD_CFLAGS)						\
 	$(LIBXFCE4UTIL_CFLAGS)						\
+	$(GARCON_CFLAGS)						\
 	$(GIO_CFLAGS)							\
 	$(LIBXFCE4UI_CFLAGS)
 
@@ -42,6 +43,7 @@ exo_desktop_item_edit_LDADD =						\
 	$(GTK_LIBS)							\
 	$(GTHREAD_LIBS)							\
 	$(LIBXFCE4UTIL_LIBS)						\
+	$(GARCON_LIBS)						\
 	$(GIO_LIBS)							\
 	$(LIBXFCE4UI_LIBS)						\
 	$(top_builddir)/exo/libexo-$(LIBEXO_VERSION_API).la

@@ -36,6 +36,7 @@
 
 #include <gio/gio.h>
 #include <libxfce4ui/libxfce4ui.h>
+#include <garcon/garcon.h>
 #include <exo-desktop-item-edit/exo-die-editor.h>
 #include <exo-desktop-item-edit/exo-die-utils.h>
 
@@ -63,6 +64,7 @@ static gchar   *opt_name = NULL;
 static gchar   *opt_comment = NULL;
 static gchar   *opt_command = NULL;
 static gboolean opt_sandbox = FALSE;
+static gchar   *opt_launch = NULL;
 static gchar   *opt_url = NULL;
 static gchar   *opt_icon = NULL;
 static gint64   opt_xid = 0;
@@ -82,6 +84,7 @@ static GOptionEntry option_entries[] =
   { "comment", 0, 0, G_OPTION_ARG_STRING, &opt_comment, N_ ("Preset comment when creating a desktop file"), NULL, },
   { "command", 0, 0, G_OPTION_ARG_STRING, &opt_command, N_ ("Preset command when creating a launcher"), NULL, },
   { "edit-sandbox", 0, G_OPTION_FLAG_HIDDEN, G_OPTION_ARG_NONE, &opt_sandbox, N_ ("Make the app sandboxed and edit its sandbox settings"), NULL, },
+  { "launch-after-edit", 0, G_OPTION_FLAG_HIDDEN, G_OPTION_ARG_STRING, &opt_launch, N_ ("Launch the app if the user saves her edits"), NULL, },
   { "url", 0, 0, G_OPTION_ARG_STRING, &opt_url, N_ ("Preset URL when creating a link"), NULL, },
   { "icon", 0, 0, G_OPTION_ARG_STRING, &opt_icon, N_ ("Preset icon when creating a desktop file"), NULL, },
   { "version", 'V', 0, G_OPTION_ARG_NONE, &opt_version, N_ ("Print version information and exit"), NULL, },
@@ -194,10 +197,10 @@ main (int argc, char **argv)
   const gchar     *mode_dir;
   gint             ox, oy, ow, oh;
   GtkWidget       *widget;
-  GtkWidget       *notebook;
   GtkWidget       *box;
-  GtkWidget       *firejail_btn;
-  XfceFirejailWidget *fjw;
+  GtkWidget       *notebook = NULL;
+  GtkWidget       *firejail_btn = NULL;
+  XfceFirejailWidget *fjw = NULL;
   guint            rows;
   guint            columns;
   FirejailBtnData  data;
@@ -529,7 +532,7 @@ main (int argc, char **argv)
     }
 #endif
 
-  if (opt_sandbox)
+  if (opt_sandbox && firejail_btn && notebook)
   {
     gtk_toggle_button_set_active (GTK_TOGGLE_BUTTON (firejail_btn), TRUE);
     gtk_notebook_set_current_page (GTK_NOTEBOOK (notebook), 1);
@@ -720,11 +723,58 @@ main (int argc, char **argv)
       g_clear_error (&error);
     }
 
+  /* no error occurred, launch the app as we were asked to */
+  if (opt_launch && response == GTK_RESPONSE_ACCEPT && result != EXIT_FAILURE)
+    {
+      GarconMenuItem *item = garcon_menu_item_new (gfile);
+      if (item)
+        {
+          gboolean  succeed = FALSE;
+          gchar    *expanded;
+          gchar    *sandbox_expanded;
+
+          /* expand variables */
+          expanded = xfce_expand_variables (opt_launch, NULL);
+          
+          if (garcon_menu_item_get_sandboxed (item))
+            {
+              sandbox_expanded = garcon_menu_item_expand_command (item, expanded, FALSE);
+              succeed = xfce_spawn_command_line_on_screen (gtk_window_get_screen (GTK_WINDOW (dialog)),
+                                                           sandbox_expanded,
+                                                           FALSE,
+                                                           garcon_menu_item_supports_startup_notification (item),
+                                                           &error);
+              g_free (sandbox_expanded);
+            }
+          else
+            {
+              succeed = xfce_spawn_command_line_on_screen (gtk_window_get_screen (GTK_WINDOW (dialog)),
+                                                           expanded,
+                                                           FALSE,
+                                                           FALSE,
+                                                           &error);
+            }
+
+          if (error)
+            {
+              xfce_dialog_show_error (GTK_WINDOW (dialog), error, "%s", _("Could not launch application"));
+              g_clear_error (&error);
+            }
+
+          if (!succeed)
+            result = EXIT_FAILURE;
+
+          g_free (expanded);
+          g_object_unref (item);
+        }
+    }
+
   /* destroy the editor dialog */
   gtk_widget_destroy (dialog);
 
   /* cleanup */
-  g_object_unref (fjw);
+  if (fjw)
+    g_object_unref (fjw);
   g_key_file_free (key_file);
   g_object_unref (G_OBJECT (gfile));
 
